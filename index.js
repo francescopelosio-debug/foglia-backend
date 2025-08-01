@@ -1,5 +1,3 @@
-import express from "express";
-// index.js
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -35,4 +33,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Foglia backend attivo su http://localhost:${PORT}`);
 });
-
