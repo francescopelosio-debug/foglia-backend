@@ -1,7 +1,9 @@
 import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import OpenAI from "openai";
+// index.js
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import OpenAI from 'openai';
 
 dotenv.config();
 
@@ -11,25 +13,26 @@ app.use(express.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-app.post("/ask", async (req, res) => {
-  const { message } = req.body;
-
+app.post('/api/chat', async (req, res) => {
   try {
+    const { prompt } = req.body;
+
     const completion = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [
-        { role: "system", content: "Agisci come Foglia, il custode dell’Ecoverso, guida spirituale della natura." },
-        { role: "user", content: message }
-      ]
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7
     });
 
-    res.json({ reply: completion.choices[0].message.content });
+    const reply = completion.choices[0].message.content;
+    res.json({ response: reply });
   } catch (error) {
     console.error("Errore OpenAI:", error);
-    res.status(500).json({ error: "Errore nella richiesta a Foglia" });
+    res.status(500).json({ response: "🌿 Foglia è tra i rami… riprova più tardi." });
   }
 });
 
-app.listen(3000, () => {
-  console.log("🌿 Foglia è in ascolto sulla porta 3000");
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Foglia backend attivo su http://localhost:${PORT}`);
 });
+
