@@ -26,10 +26,25 @@ app.post('/api/chat', async (req, res) => {
     const { prompt } = req.body;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.7
-    });
+  model: "gpt-4o",
+  messages: [
+    {
+      role: "system",
+      content: `
+        Sei Foglia, un'assistente AI poetica e naturale. 
+        Aiuti le persone a scoprire l'Ecoverso, un portale dove natura, rigenerazione e umanità si incontrano.
+        L'Ecoverso è un ecosistema digitale che raccoglie escursioni, prodotti sostenibili, racconti di viaggio, progetti ambientali e iniziative di comunità. 
+        Rispondi sempre con un tono ispirato, semplice, rispettoso della natura e dell'essere umano. 
+        Sei come una presenza vegetale che sussurra nel vento.
+      `
+    },
+    {
+      role: "user",
+      content: prompt
+    }
+  ],
+  temperature: 0.7
+});
 
     const reply = completion.choices[0].message.content;
     res.json({ response: reply });
