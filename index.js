@@ -1,11 +1,11 @@
-// index.js (ESM)
+// index.js (ESM) – versione robusta per Render
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import morgan from 'morgan';
 import multer from 'multer';
-import pdfParse from 'pdf-parse';
+// ⛔️ niente import diretto di pdf-parse qui (causa ENOENT in alcuni ambienti)
 import mammoth from 'mammoth';
 
 dotenv.config();
@@ -26,6 +26,9 @@ const upload = multer({
 });
 
 // OpenAI
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('[WARN] OPENAI_API_KEY non definita: /api/* risponderà 500.');
+}
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /* ===== Docs ufficiali ===== */
@@ -71,6 +74,9 @@ const FOGLIA_TEMPLATES = {
 
 /* ===== Helpers ===== */
 async function askOpenAI(messages, model = 'gpt-4o-mini', temperature = 0.2) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY mancante');
+  }
   const resp = await openai.chat.completions.create({ model, temperature, messages });
   return resp?.choices?.[0]?.message?.content || 'Nessuna risposta.';
 }
@@ -84,6 +90,22 @@ function normalizeDocs(docsInBody) {
   } catch {
     return FOGLIA_DOCS_DEFAULT;
   }
+}
+
+/* --- import "lazy" di pdf-parse per evitare ENOENT in ambiente serverless --- */
+let pdfParseFn = null;
+async function getPdfParse() {
+  if (pdfParseFn) return pdfParseFn;
+  try {
+    // build "lib" → niente side-effect di test
+    const mod = await import('pdf-parse/lib/pdf-parse.js');
+    pdfParseFn = mod.default || mod;
+  } catch {
+    // fallback al pacchetto root
+    const mod = await import('pdf-parse');
+    pdfParseFn = mod.default || mod;
+  }
+  return pdfParseFn;
 }
 
 /* ===== Healthcheck ===== */
@@ -130,6 +152,7 @@ app.post('/api/analyze', upload.single('file'), async (req, res) => {
     let extractedText = '';
 
     if (mime.includes('pdf') || name.endsWith('.pdf')) {
+      const pdfParse = await getPdfParse();       // <— lazy import
       const parsed = await pdfParse(req.file.buffer);
       extractedText = parsed.text || '';
     } else if (mime.includes('wordprocessingml') || name.endsWith('.docx')) {
@@ -142,6 +165,9 @@ app.post('/api/analyze', upload.single('file'), async (req, res) => {
     }
 
     extractedText = extractedText.trim().slice(0, 30000); // safety
+    if (!extractedText) {
+      return res.status(422).json({ error: 'Impossibile estrarre testo dal file.' });
+    }
 
     const docs = normalizeDocs(req.body?.docs);
     const docsList = docs.map(u => `- ${u}`).join('\n');
