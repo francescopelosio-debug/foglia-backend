@@ -95,11 +95,17 @@ function normalizeDocs(docsInBody) {
   }
 }
 
-async function askOpenAI(messages, model = OPENAI_MODEL, temperature = 0.2) {
+async function askOpenAI(messages, model, temperature = 0.2) {
+  const MODEL = model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY mancante');
-  const resp = await openai.chat.completions.create({ model, temperature, messages });
-  return resp?.choices?.[0]?.message?.content || '';
+  const resp = await openai.chat.completions.create({
+    model: MODEL,
+    temperature,
+    messages
+  });
+  return resp?.choices?.[0]?.message?.content || 'Nessuna risposta.';
 }
+
 
 function safeParseJSON(s){
   try { return JSON.parse(s) } catch { return null }
