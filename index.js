@@ -1,50 +1,50 @@
-// Backend minimo per STAGING Ecoverso
+// ========== Foglia Backend (Express + CORS) ==========
+
 import express from "express";
 import cors from "cors";
-import morgan from "morgan";
-import dotenv from "dotenv";
-dotenv.config();
 
 const app = express();
+app.use(express.json());
 
-// *** IMPORTANTISSIMO: consenti SOLO lo staging ora ***
-const ALLOWED_ORIGINS = [
+// --- Origini consentite ---
+const allowedOrigins = [
   "https://staging.ecoverso.earth",
-  // se vuoi test locale aggiungi: "http://localhost:5173"
+  "https://ecoverso.earth",
+  "http://localhost:8080"
 ];
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // permetti curl/postman
-      cb(null, ALLOWED_ORIGINS.includes(origin));
-    },
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
+// --- Configurazione CORS ---
+app.use(cors({
+  origin: function (origin, callback) {
+    // Consenti richieste senza header Origin (es. curl, test locali)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error("Not allowed by CORS"));
+    }
+  },
+  methods: ["POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false
+}));
 
-app.use(express.json({ limit: "1mb" }));
-app.use(morgan("tiny"));
+// --- Gestione preflight OPTIONS ---
+app.options("/api/chat", cors());
 
-// Healthcheck
-app.get("/", (_req, res) => {
-  res.type("text").send("🌿 Foglia STAGING attiva.");
-});
-
-// Chat minima (senza OpenAI): risponde subito e fa echo
+// --- Endpoint principale di Foglia ---
 app.post("/api/chat", (req, res) => {
-  const prompt = String(req.body?.prompt || "").trim();
-  if (!prompt) return res.status(400).json({ error: "prompt mancante" });
+  const { message } = req.body;
+  console.log("Messaggio ricevuto:", message);
 
-  // Risposta fissa + eco per test front-end
-  const reply =
-    "Ciao! Sono Foglia (staging). Mi hai scritto: “" + prompt + "”. 🌿";
-  res.json({ reply });
+  // Risposta demo (qui collegherai il modello AI vero)
+  res.json({
+    reply: `🌿 Foglia ti risponde: ho ricevuto -> "${message}"`
+  });
 });
 
-// Porta/bind richiesti da Render
+// --- Porta (Render usa process.env.PORT) ---
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () =>
-  console.log(`✅ Foglia STAGING su :${PORT}`)
-);
+app.listen(PORT, () => {
+  console.log(`Foglia backend attivo su porta ${PORT}`);
+});
