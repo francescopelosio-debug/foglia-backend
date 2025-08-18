@@ -1,99 +1,118 @@
-import express from "express";
-import cors from "cors";
-import fetch from "node-fetch";
+// ===== Foglia • Frontend engine (usa proxy WP per la chat) =====
+(() => {
+  // --- ENDPOINTS ---
+  const CHAT_API    = '/wp-json/foglia/v1/chat';             // proxy WP (niente CORS)
+  const ANALYZE_API = 'https://foglia-ai.onrender.com/api/analyze'; // upload PDF/DOCX (opzionale)
 
-const app = express();
-app.use(express.json());
+  // --- HOOK DOM ---
+  const $   = sel => document.querySelector(sel);
+  const box = $('#foglia-box');
+  const msgs= $('#foglia-messages');
+  const input = $('#foglia-input');
+  const send  = $('#foglia-send');
+  const upBtn = $('#foglia-upload');
+  const fileI = $('#foglia-file');
+  const toggle = $('#foglia-toggle-mini');
+  const closeB = $('#foglia-close');
+  if(!box || !msgs || !input || !send) return;
 
-// ===== CORS robusto =====
-const ORIGINS = (process.env.CORS_ORIGIN || "*")
-  .split(",")
-  .map(s => s.trim())
-  .filter(Boolean);
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // server-to-server o curl
-    if (ORIGINS.includes("*") || ORIGINS.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error("Not allowed by CORS: " + origin), false);
-  },
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
-};
-
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
-
-// ===== Variabili di ambiente =====
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const DOCS_JSON_URL = process.env.DOCS_JSON_URL || null;
-
-// ===== Helper: scarica lista documenti =====
-async function loadDocs() {
-  if (!DOCS_JSON_URL) return [];
-  try {
-    const res = await fetch(DOCS_JSON_URL);
-    if (!res.ok) throw new Error("Docs fetch error " + res.status);
-    return await res.json();
-  } catch (err) {
-    console.error("Errore caricamento docs:", err.message);
-    return [];
-  }
-}
-
-// ===== Endpoint principale chat =====
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { prompt } = req.body;
-    if (!prompt) return res.status(400).json({ error: "Prompt mancante" });
-
-    // Carica documenti ufficiali
-    const docs = await loadDocs();
-    const context = docs.length
-      ? "Documenti disponibili: " + docs.join(", ")
-      : "Nessun documento caricato.";
-
-    // Chiama OpenAI
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: "Sei Foglia, Custode AI di Ecoverso." },
-          { role: "system", content: context },
-          { role: "user", content: prompt },
-        ],
-      }),
+  // --- UTILS ---
+  const esc = s => String(s ?? '').replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
+  const add  = (who, text) => {
+    msgs.insertAdjacentHTML('beforeend',
+      `<div style="margin:8px 0"><strong>${who}:</strong> ${esc(text).replace(/\n/g,'<br>')}</div>`);
+    msgs.scrollTop = msgs.scrollHeight;
+  };
+  const typing = () => {
+    const el = document.createElement('div');
+    el.className = 'foglia-typing';
+    el.innerHTML = '<strong>Foglia:</strong> <span class="dot">•</span><span class="dot">•</span><span class="dot">•</span>';
+    msgs.appendChild(el); msgs.scrollTop = msgs.scrollHeight;
+    return () => el.remove();
+  };
+  const postJSON = async (url, body) => {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
     });
+    const raw = await r.text();
+    let data; try { data = JSON.parse(raw); } catch { data = { response: raw }; }
+    if(!r.ok) throw new Error(data?.error || ('HTTP '+r.status));
+    // normalizza i diversi possibili payload
+    return (typeof data === 'string')
+      ? data
+      : (data.response || data.content || data?.message?.content || data?.choices?.[0]?.message?.content || '');
+  };
 
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message);
-
-    const reply = data.choices?.[0]?.message?.content || "(nessuna risposta)";
-    res.json({ reply });
-
-  } catch (err) {
-    console.error("Errore /api/chat:", err);
-    res.status(500).json({ error: err.message });
+  // --- GREETING BOSCHIVO (una volta) ---
+  function greeting(){
+    const tz='Europe/Rome', now=new Date();
+    const fmt=new Intl.DateTimeFormat('it-IT',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:tz}).format(now);
+    const hour=+new Intl.DateTimeFormat('it-IT',{hour:'2-digit',hour12:false,timeZone:tz}).format(now);
+    const momento = hour<6?'notte':hour<12?'mattina':hour<18?'pomeriggio':'sera';
+    const y=now.getUTCFullYear();
+    const d=(m,day)=>new Date(Date.parse(`${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}T00:00:00Z`));
+    const s=d(6,21), a=d(9,22), i=d(12,21), p=d(3,20);
+    let stag='inverno', frase='tempo di riposo e radici silenziose';
+    if(now>=p && now<s){ stag='primavera'; frase='giorni di germogli e acqua chiara'; }
+    else if(now>=s && now<a){ stag='estate'; frase='luce lunga e sentieri profumati di resina'; }
+    else if(now>=a && now<i){ stag='autunno'; frase='foglie dorate e passi più attenti'; }
+    add('Foglia', `🌿 Oggi è **${fmt}**, una **${momento}** di **${stag}**: ${frase}. Dimmi pure come posso aiutarti.`);
   }
-});
 
-// ===== Endpoint diagnostico =====
-app.get("/debug/cors", (req, res) => {
-  res.json({
-    originHeader: req.headers.origin || null,
-    allowedOrigins: ORIGINS,
-  });
-});
+  // --- APRI/CHIUDI ---
+  function openBox(){ box.style.display='block'; if(toggle) toggle.style.display='none'; if(!window.__fogliaGreeted){ greeting(); window.__fogliaGreeted=true; } }
+  function closeBox(){ box.style.display='none'; if(toggle) toggle.style.display=''; }
+  toggle?.addEventListener('click', openBox);
+  closeB?.addEventListener('click', closeBox);
+  document.addEventListener('keydown', e => { if(e.key==='Escape') closeBox(); });
+  document.addEventListener('click', e => { if (box.style.display==='block' && !box.contains(e.target) && !toggle?.contains(e.target)) closeBox(); });
 
-// ===== Start =====
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Foglia AI server in ascolto su porta ${PORT}`);
-});
+  // --- INVIO MESSAGGIO ---
+  async function sendMsg(){
+    const text = input.value.trim(); if(!text) return;
+    add('Tu', text); input.value='';
+    const stop = typing();
+    try{
+      // usa proxy WP (niente CORS)
+      const reply = await postJSON(CHAT_API, { prompt: text });
+      stop(); add('Foglia', reply || '…nessuna risposta.');
+    }catch(e){
+      stop(); add('Foglia', 'Errore 404: impossibile contattare il bosco.');
+    }
+  }
+  send.addEventListener('click', sendMsg);
+  input.addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMsg(); } });
+
+  // --- UPLOAD (opzionale, passa dal backend Render) ---
+  if (upBtn && fileI){
+    upBtn.addEventListener('click', () => fileI.click());
+    fileI.addEventListener('change', async () => {
+      const f = fileI.files?.[0]; if(!f) return;
+      add('Tu', `Ho caricato ${f.name}.`);
+      const fd = new FormData(); fd.append('file', f, f.name);
+      const stop = typing();
+      try{
+        const r = await fetch(ANALYZE_API, { method:'POST', body: fd });
+        const raw = await r.text();
+        let data; try { data = JSON.parse(raw); } catch { data = { response: raw }; }
+        stop(); add('Foglia', data.response || 'Nessuna risposta.');
+      }catch(e){
+        stop(); add('Foglia', '❌ Errore durante l’analisi del file.');
+      }finally{
+        fileI.value = '';
+      }
+    });
+  }
+
+  // --- micro-CSS per i puntini ---
+  if(!document.getElementById('foglia-typing-css')){
+    const s=document.createElement('style'); s.id='foglia-typing-css';
+    s.textContent = `.foglia-typing .dot{display:inline-block;animation:fblink 1.2s infinite}
+      .foglia-typing .dot:nth-child(2){animation-delay:.15s}
+      .foglia-typing .dot:nth-child(3){animation-delay:.3s}
+      @keyframes fblink{0%,60%,100%{opacity:.2}30%{opacity:1}}`;
+    document.head.appendChild(s);
+  }
+})();
